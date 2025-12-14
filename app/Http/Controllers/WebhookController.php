@@ -145,7 +145,7 @@ class WebhookController extends Controller
 
         // Personalization
         $profile = $this->instagramService->getUserProfile($userId);
-        $firstName = $profile['first_name'] ?? 'there';
+        $firstName = ($profile && isset($profile['first_name'])) ? $profile['first_name'] : 'there';
         $message = str_replace('{first_name}', $firstName, $template);
 
         // Send DM
