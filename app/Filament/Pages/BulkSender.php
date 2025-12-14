@@ -18,7 +18,7 @@ class BulkSender extends Page
     use InteractsWithForms;
 
     protected static string | BackedEnum | null $navigationIcon = 'heroicon-o-paper-airplane';
-    protected static string $view = 'filament.pages.bulk-sender';
+    protected string $view = 'filament.pages.bulk-sender';
     protected static ?string $navigationLabel = 'Bulk DM Sender';
     protected static ?string $title = 'Bulk DM Sender';
 
