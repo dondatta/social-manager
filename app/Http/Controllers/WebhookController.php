@@ -49,48 +49,25 @@ class WebhookController extends Controller
         $senderId = $event['sender']['id'] ?? null;
         if (!$senderId) return;
 
-        // 1. Story Reply (message with a reference to a story)
-        // OR 4. Story Mention (sometimes comes as a message or mention, checking logic)
-        
         if (isset($event['message'])) {
             $message = $event['message'];
             
-            // Check for Story Reply
-            // Usually has 'reply_to' => ['story' => ...] but structure varies.
-            // Simplified check: if it's a message response to a story
-            
-            // Actually, Story Mentions often come as a message with an attachment or specific type.
-            // Let's implement generic Message Handler first
-            
-            // Story Reply Check: often normal text but context might be available?
-            // "User replies to any of our current Stories" -> The webhook event usually indicates source.
-            
-            // For now, let's look for specific signals.
-            
-            // If it is a simple text message, ignore unless we want a general chatbot.
-            // But we need "Story Reply".
-            
-            // NOTE: Accurate detection of "Story Reply" vs "Normal DM" requires checking 'reply_to' field in some API versions,
-            // or checking if the conversation started from a story.
-            
             // 4. Story Mention
-            // When a user mentions you in their story, you get a message saying "Mentioned you in their story" + attachment.
-            
+            // When a user mentions you in their story, you receive a message with an attachment of type 'story_mention'
             if (isset($message['attachments'])) {
-                // Check if it's a story mention
-                // (Logic to be refined based on actual payload structure for Story Mentions)
-                 $this->processStoryMention($senderId);
-            } else {
-                 // Assume generic reply for now or implement "Story Reply" detection if possible via 'reply_to'
-                 // Verify "Story Reply" vs generic DM:
-                 // In V21.0, there isn't a guaranteed "is_story_reply" flag in the basic webhook without looking at context.
-                 // However, we can check if the user has a recent story interaction or just treat all incoming DMs as potentially replying if configured.
-                 
-                 // User Requirement 1: "User replies to any of our current Stories."
-                 // This is tricky. Let's look for `reply_to` field if it exists.
-                 if (isset($message['reply_to']['story'])) {
-                      $this->processStoryReply($senderId);
-                 }
+                foreach ($message['attachments'] as $attachment) {
+                    if (($attachment['type'] ?? '') === 'story_mention') {
+                        $this->processStoryMention($senderId);
+                        return;
+                    }
+                }
+            }
+            
+            // 1. Story Reply
+            // Check if the message is a reply to a story
+            if (isset($message['reply_to']['story'])) {
+                 $this->processStoryReply($senderId);
+                 return;
             }
         }
     }
@@ -100,31 +77,13 @@ class WebhookController extends Controller
         $field = $event['field'] ?? null;
         $value = $event['value'] ?? [];
 
-        // 2. New Follower Welcome
-        // Usually field = 'feed'? No, actually, for followers, we need the Graph API or "Instagram User" webhooks.
-        // There isn't a direct "new_follower" webhook for Instagram Business accounts in the same way as simple events.
-        // Wait, "Instagram Basic Display" had it? No.
-        // "Webhooks for Instagram Graph API" -> "comments", "mentions", "story_insights".
-        // There is NO direct "follow" webhook in the official Instagram Graph API for Business.
-        // Workaround: Poll /insights or use third-party? The user said "Exclusive Official API".
-        // RE-CHECK: Is there a 'followed' event?
-        // Answer: No native 'new_follower' webhook for IG Business. 
-        // Many solutions poll the followers list (which is rate limited). 
-        // OR maybe "User follows our Instagram account" is not fully possible via strictly "Webhooks" instantaneously.
-        // BUT, maybe they mean "messages" with a "started following" context? Unlikely.
-        
-        // Let's assume for now we might handle it via a different trigger or acknowledge the limitation.
-        // Actually, let's implement the COMMENT handler which is definitely supported.
-
         // 3. Comment-to-DM
         if ($field === 'comments') {
-            // value contains media_id, text, from, id...
             $this->processComment($value);
         }
         
-        // 4. Mentions (in Stories or Posts)
+        // 4. Mentions (in Posts/Comments)
         if ($field === 'mentions') {
-            // Someone mentioned the page
             $this->processMention($value);
         }
     }
@@ -143,26 +102,26 @@ class WebhookController extends Controller
     {
         $text = $data['text'] ?? '';
         $userId = $data['from']['id'] ?? null;
+        $commentId = $data['id'] ?? null;
         
-        if (!$userId) return;
+        if (!$userId || !$commentId) return;
 
         $keyword = AutomationSetting::where('key', 'comment_keyword')->value('value');
+        
+        // If no keyword is set, maybe trigger for all comments? 
+        // Usually safer to require a keyword to avoid spam.
         if ($keyword && stripos($text, $keyword) !== false) {
-            $this->triggerAutomation($userId, 'comment_dm');
+            $this->triggerAutomation($userId, 'comment_dm', $commentId);
         }
     }
 
     protected function processMention($data)
     {
-        // $data usually contains 'media_id', 'comment_id' etc.
-        // We need the user_id.
-        // "User mentions our account in their own Story."
-        // Story mentions often come via Messaging webhook (processed above) or Mention webhook.
-        // If it comes here:
-        // $this->triggerAutomation($userId, 'story_mention');
+        // Handle Post/Comment mentions here if needed
+        // For now, Story Mentions are handled in handleMessagingEvent
     }
 
-    protected function triggerAutomation($userId, $type)
+    protected function triggerAutomation($userId, $type, $commentId = null)
     {
         // Check Cooldown
         $cooldown = AutomationCooldown::where('instagram_user_id', $userId)
@@ -190,7 +149,14 @@ class WebhookController extends Controller
         $message = str_replace('{first_name}', $firstName, $template);
 
         // Send DM
-        $success = $this->instagramService->sendDm($userId, $message);
+        // For comment_dm, we try to send a Private Reply to the comment if we have a comment ID.
+        // However, standard DM is often preferred for "Welcome". 
+        // Using 'comment_id' sends a "Private Reply" which is a specific type of message linked to the comment.
+        
+        $isCommentReply = ($type === 'comment_dm' && $commentId);
+        $recipient = $isCommentReply ? $commentId : $userId;
+
+        $success = $this->instagramService->sendDm($recipient, $message, $isCommentReply);
 
         // Log
         AutomationLog::create([
