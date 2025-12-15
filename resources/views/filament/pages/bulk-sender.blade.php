@@ -1,5 +1,5 @@
 <x-filament-panels::page>
-    <x-filament-panels::form wire:submit="send">
+    <form wire:submit="send">
         {{ $this->form }}
         
         <div class="flex justify-end mt-4">
@@ -7,6 +7,6 @@
                 Start Sending
             </x-filament::button>
         </div>
-    </x-filament-panels::form>
+    </form>
 </x-filament-panels::page>
 

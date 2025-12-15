@@ -5,7 +5,7 @@ namespace App\Filament\Pages;
 use Filament\Pages\Page;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Textarea;
-use Filament\Forms\Form;
+use Filament\Schemas\Schema;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
@@ -29,7 +29,7 @@ class BulkSender extends Page
         $this->form->fill();
     }
 
-    public function form(Form $form): Form
+    public function form(Schema $form): Schema
     {
         return $form
             ->schema([
