@@ -8,7 +8,11 @@ use App\Services\InstagramService;
 use App\Models\AutomationSetting;
 use App\Models\AutomationLog;
 use App\Models\AutomationCooldown;
+use App\Models\Message;
 use App\Jobs\SendWelcomeDmJob;
+use App\Jobs\SyncToHubspotJob;
+use Filament\Notifications\Notification;
+use App\Models\User;
 
 class WebhookController extends Controller
 {
@@ -51,13 +55,26 @@ class WebhookController extends Controller
 
         if (isset($event['message'])) {
             $message = $event['message'];
+            $messageText = $message['text'] ?? '';
+            
+            // Get username for display
+            $profile = $this->instagramService->getUserProfile($senderId);
+            $username = ($profile && isset($profile['username'])) ? $profile['username'] : null;
             
             // 4. Story Mention
             // When a user mentions you in their story, you receive a message with an attachment of type 'story_mention'
             if (isset($message['attachments'])) {
                 foreach ($message['attachments'] as $attachment) {
                     if (($attachment['type'] ?? '') === 'story_mention') {
-                        $this->processStoryMention($senderId);
+                        // Save message
+                        Message::create([
+                            'instagram_user_id' => $senderId,
+                            'instagram_username' => $username,
+                            'message_type' => 'story_mention',
+                            'message_text' => $messageText ?: 'Story mention',
+                            'raw_payload' => $event,
+                        ]);
+                        $this->processStoryMention($senderId, $messageText);
                         return;
                     }
                 }
@@ -66,8 +83,33 @@ class WebhookController extends Controller
             // 1. Story Reply
             // Check if the message is a reply to a story
             if (isset($message['reply_to']['story'])) {
-                 $this->processStoryReply($senderId);
-                 return;
+                // Save message
+                Message::create([
+                    'instagram_user_id' => $senderId,
+                    'instagram_username' => $username,
+                    'message_type' => 'story_reply',
+                    'message_text' => $messageText ?: 'Story reply',
+                    'raw_payload' => $event,
+                ]);
+                $this->processStoryReply($senderId, $messageText);
+                return;
+            }
+            
+            // Regular DM
+            if ($messageText) {
+                // Save message
+                Message::create([
+                    'instagram_user_id' => $senderId,
+                    'instagram_username' => $username,
+                    'message_type' => 'dm',
+                    'message_text' => $messageText,
+                    'raw_payload' => $event,
+                ]);
+                
+                // Sync to HubSpot (if configured)
+                if ($username) {
+                    SyncToHubspotJob::dispatch($senderId, $username, $messageText, 'Instagram DM');
+                }
             }
         }
     }
@@ -88,13 +130,19 @@ class WebhookController extends Controller
         }
     }
 
-    protected function processStoryReply($userId)
+    protected function processStoryReply($userId, $messageText = '')
     {
+        $profile = $this->instagramService->getUserProfile($userId);
+        $username = ($profile && isset($profile['username'])) ? $profile['username'] : $userId;
+        $this->notifyAdmins('New Story Reply', "User @$username replied to your story: \"$messageText\"");
         $this->triggerAutomation($userId, 'story_reply');
     }
 
-    protected function processStoryMention($userId)
+    protected function processStoryMention($userId, $messageText = '')
     {
+        $profile = $this->instagramService->getUserProfile($userId);
+        $username = ($profile && isset($profile['username'])) ? $profile['username'] : $userId;
+        $this->notifyAdmins('New Story Mention', "User @$username mentioned you in their story: \"$messageText\"");
         $this->triggerAutomation($userId, 'story_mention');
     }
 
@@ -103,8 +151,32 @@ class WebhookController extends Controller
         $text = $data['text'] ?? '';
         $userId = $data['from']['id'] ?? null;
         $commentId = $data['id'] ?? null;
+        $mediaId = $data['media']['id'] ?? null;
         
         if (!$userId || !$commentId) return;
+
+        // Get username
+        $profile = $this->instagramService->getUserProfile($userId);
+        $username = ($profile && isset($profile['username'])) ? $profile['username'] : null;
+
+        // Save message
+        Message::create([
+            'instagram_user_id' => $userId,
+            'instagram_username' => $username,
+            'message_type' => 'comment',
+            'message_text' => $text,
+            'media_id' => $mediaId,
+            'comment_id' => $commentId,
+            'raw_payload' => $data,
+        ]);
+
+        $displayName = $username ? "@$username" : $userId;
+        $this->notifyAdmins('New Comment', "User $displayName commented: \"$text\"");
+
+        // Sync to HubSpot (if configured)
+        if ($text && $username) {
+            SyncToHubspotJob::dispatch($userId, $username, $text, 'Instagram Comment');
+        }
 
         $keyword = AutomationSetting::where('key', 'comment_keyword')->value('value');
         
@@ -119,6 +191,44 @@ class WebhookController extends Controller
     {
         // Handle Post/Comment mentions here if needed
         // For now, Story Mentions are handled in handleMessagingEvent
+        $mediaId = $data['media_id'] ?? null;
+        $userId = $data['from']['id'] ?? null;
+        $text = $data['text'] ?? 'Mention';
+        
+        if ($userId) {
+            // Get username
+            $profile = $this->instagramService->getUserProfile($userId);
+            $username = ($profile && isset($profile['username'])) ? $profile['username'] : null;
+
+            // Save message
+            Message::create([
+                'instagram_user_id' => $userId,
+                'instagram_username' => $username,
+                'message_type' => 'mention',
+                'message_text' => $text,
+                'media_id' => $mediaId,
+                'raw_payload' => $data,
+            ]);
+
+            $displayName = $username ? "@$username" : $userId;
+            $this->notifyAdmins('New Mention', "User $displayName mentioned you in a post/comment (Media ID: $mediaId)");
+        }
+    }
+
+    protected function notifyAdmins(string $title, string $body)
+    {
+        try {
+            $admins = User::all();
+            
+            Notification::make()
+                ->title($title)
+                ->body($body)
+                ->info() // or success(), warning()
+                ->sendToDatabase($admins);
+                
+        } catch (\Exception $e) {
+            Log::error('Failed to send admin notification: ' . $e->getMessage());
+        }
     }
 
     protected function triggerAutomation($userId, $type, $commentId = null)

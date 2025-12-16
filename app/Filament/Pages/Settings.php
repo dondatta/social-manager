@@ -26,6 +26,11 @@ class Settings extends Page
     public function mount(): void
     {
         $settings = AutomationSetting::all()->pluck('value', 'key')->toArray();
+        
+        // Also load HubSpot config from .env/config
+        $settings['hubspot_api_key'] = config('services.hubspot.api_key', '');
+        $settings['hubspot_instagram_handle_property'] = config('services.hubspot.instagram_handle_property', 'instagram_handle');
+        
         $this->form->fill($settings);
     }
 
@@ -63,6 +68,23 @@ class Settings extends Page
                     ->label('Story Mention DM Template')
                      ->helperText('Use {first_name} for user name.')
                     ->required(),
+
+                \Filament\Forms\Components\Section::make('HubSpot Integration')
+                    ->description('Create a Private App using HubSpot CLI: `hs apps create private-app`. See HUBSPOT_SETUP.md for details.')
+                    ->schema([
+                        TextInput::make('hubspot_api_key')
+                            ->label('HubSpot API Key')
+                            ->password()
+                            ->helperText('Your HubSpot Private App Access Token (created via CLI: hs apps create private-app)')
+                            ->placeholder('pat-na1-...'),
+                        
+                        TextInput::make('hubspot_instagram_handle_property')
+                            ->label('Instagram Handle Property Name')
+                            ->helperText('The internal property name in HubSpot where Instagram usernames are stored (default: "Instagram")')
+                            ->default('Instagram')
+                            ->required(),
+                    ])
+                    ->collapsible(),
             ])
             ->statePath('data');
     }
@@ -71,7 +93,24 @@ class Settings extends Page
     {
         $data = $this->form->getState();
 
+        // Handle HubSpot settings separately (they go to .env, not database)
+        $hubspotApiKey = $data['hubspot_api_key'] ?? '';
+        $hubspotProperty = $data['hubspot_instagram_handle_property'] ?? 'instagram_handle';
+        
+        // Note: In production, you'd want to update .env file programmatically
+        // For now, we'll save to AutomationSetting and user can manually update .env
+        // Or we can use a package like dotenv-editor
+        
         foreach ($data as $key => $value) {
+            // Skip HubSpot settings - they need special handling
+            if (in_array($key, ['hubspot_api_key', 'hubspot_instagram_handle_property'])) {
+                AutomationSetting::updateOrCreate(
+                    ['key' => $key],
+                    ['value' => $value]
+                );
+                continue;
+            }
+            
             AutomationSetting::updateOrCreate(
                 ['key' => $key],
                 ['value' => $value]
@@ -80,6 +119,7 @@ class Settings extends Page
 
         Notification::make()
             ->title('Settings saved successfully')
+            ->body('Note: HubSpot API key changes require updating your .env file and restarting the application.')
             ->success()
             ->send();
     }

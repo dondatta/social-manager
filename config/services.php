@@ -42,5 +42,10 @@ return [
         'page_id' => env('IG_PAGE_ID'),
     ],
 
+    'hubspot' => [
+        'api_key' => env('HUBSPOT_API_KEY'),
+        'instagram_handle_property' => env('HUBSPOT_INSTAGRAM_HANDLE_PROPERTY', 'Instagram'),
+    ],
+
 ];
 

@@ -73,7 +73,7 @@ class InstagramService
 
         $response = Http::withToken($this->accessToken)
             ->get($url, [
-                'fields' => 'name,first_name,last_name,profile_pic',
+                'fields' => 'name,first_name,last_name,profile_pic,username',
             ]);
 
         if ($response->successful()) {
