@@ -67,8 +67,10 @@ class UpdateMessageProfiles extends Command
                         $updateData['instagram_username'] = $profile['username'];
                     }
                     
-                    if (!$message->profile_picture_url && isset($profile['profile_pic'])) {
-                        $updateData['profile_picture_url'] = $profile['profile_pic'];
+                    // Try both field names for profile picture
+                    $profilePic = $profile['profile_picture_url'] ?? $profile['profile_pic'] ?? null;
+                    if (!$message->profile_picture_url && $profilePic) {
+                        $updateData['profile_picture_url'] = $profilePic;
                     }
                     
                     if (!empty($updateData)) {
