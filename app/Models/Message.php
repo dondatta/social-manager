@@ -9,6 +9,7 @@ class Message extends Model
     protected $fillable = [
         'instagram_user_id',
         'instagram_username',
+        'profile_picture_url',
         'message_type',
         'message_text',
         'media_id',

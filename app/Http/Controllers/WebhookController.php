@@ -57,9 +57,10 @@ class WebhookController extends Controller
             $message = $event['message'];
             $messageText = $message['text'] ?? '';
             
-            // Get username for display
+            // Get username and profile picture for display
             $profile = $this->instagramService->getUserProfile($senderId);
             $username = ($profile && isset($profile['username'])) ? $profile['username'] : null;
+            $profilePic = ($profile && isset($profile['profile_pic'])) ? $profile['profile_pic'] : null;
             
             // 4. Story Mention
             // When a user mentions you in their story, you receive a message with an attachment of type 'story_mention'
@@ -70,6 +71,7 @@ class WebhookController extends Controller
                         Message::create([
                             'instagram_user_id' => $senderId,
                             'instagram_username' => $username,
+                            'profile_picture_url' => $profilePic,
                             'message_type' => 'story_mention',
                             'message_text' => $messageText ?: 'Story mention',
                             'raw_payload' => $event,
@@ -87,6 +89,7 @@ class WebhookController extends Controller
                 Message::create([
                     'instagram_user_id' => $senderId,
                     'instagram_username' => $username,
+                    'profile_picture_url' => $profilePic,
                     'message_type' => 'story_reply',
                     'message_text' => $messageText ?: 'Story reply',
                     'raw_payload' => $event,
@@ -101,6 +104,7 @@ class WebhookController extends Controller
                 Message::create([
                     'instagram_user_id' => $senderId,
                     'instagram_username' => $username,
+                    'profile_picture_url' => $profilePic,
                     'message_type' => 'dm',
                     'message_text' => $messageText,
                     'raw_payload' => $event,
@@ -155,14 +159,16 @@ class WebhookController extends Controller
         
         if (!$userId || !$commentId) return;
 
-        // Get username
+        // Get username and profile picture
         $profile = $this->instagramService->getUserProfile($userId);
         $username = ($profile && isset($profile['username'])) ? $profile['username'] : null;
+        $profilePic = ($profile && isset($profile['profile_pic'])) ? $profile['profile_pic'] : null;
 
         // Save message
         Message::create([
             'instagram_user_id' => $userId,
             'instagram_username' => $username,
+            'profile_picture_url' => $profilePic,
             'message_type' => 'comment',
             'message_text' => $text,
             'media_id' => $mediaId,
@@ -196,14 +202,16 @@ class WebhookController extends Controller
         $text = $data['text'] ?? 'Mention';
         
         if ($userId) {
-            // Get username
+            // Get username and profile picture
             $profile = $this->instagramService->getUserProfile($userId);
             $username = ($profile && isset($profile['username'])) ? $profile['username'] : null;
+            $profilePic = ($profile && isset($profile['profile_pic'])) ? $profile['profile_pic'] : null;
 
             // Save message
             Message::create([
                 'instagram_user_id' => $userId,
                 'instagram_username' => $username,
+                'profile_picture_url' => $profilePic,
                 'message_type' => 'mention',
                 'message_text' => $text,
                 'media_id' => $mediaId,

@@ -17,6 +17,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Table;
 use Filament\Tables\Filters\SelectFilter;
@@ -42,6 +43,11 @@ class MessageResource extends Resource
                 TextInput::make('instagram_username')
                     ->label('Instagram Username')
                     ->disabled(),
+                TextInput::make('profile_picture_url')
+                    ->label('Profile Picture URL')
+                    ->disabled()
+                    ->url(fn ($record) => $record->profile_picture_url)
+                    ->openUrlInNewTab(),
                 Select::make('message_type')
                     ->label('Message Type')
                     ->options([
@@ -76,10 +82,17 @@ class MessageResource extends Resource
             ->recordTitleAttribute('message_text')
             ->defaultSort('created_at', 'desc')
             ->columns([
+                ImageColumn::make('profile_picture_url')
+                    ->label('')
+                    ->circular()
+                    ->size(40)
+                    ->defaultImageUrl('data:image/svg+xml;base64,' . base64_encode('<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>')),
                 TextColumn::make('instagram_username')
                     ->label('Username')
                     ->searchable()
-                    ->sortable(),
+                    ->sortable()
+                    ->formatStateUsing(fn ($record) => $record->instagram_username ? '@' . $record->instagram_username : 'Unknown')
+                    ->description(fn ($record) => $record->instagram_user_id ? 'ID: ' . $record->instagram_user_id : null),
                 TextColumn::make('message_type')
                     ->label('Type')
                     ->badge()
