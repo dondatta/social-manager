@@ -62,6 +62,9 @@ class TestProfileFetch extends Command
         
         // Test direct API call
         $this->info("Fetching profile from Instagram API...");
+        $this->info("Using User ID: {$message->instagram_user_id}");
+        $this->newLine();
+        
         $profile = $instagramService->getUserProfile($message->instagram_user_id);
         
         if ($profile) {
@@ -104,8 +107,16 @@ class TestProfileFetch extends Command
                 $this->info("✓ Job dispatched! Make sure your queue worker is running to process it.");
             }
         } else {
-            $this->error("✗ Failed to fetch profile. Check your Instagram API credentials and permissions.");
-            $this->warn("The API might not return profile data for this user ID, or the access token might not have the required permissions.");
+            $this->error("✗ Failed to fetch profile.");
+            $this->newLine();
+            $this->warn("Common reasons for failure:");
+            $this->line("1. Instagram Graph API doesn't support fetching profiles for Instagram-scoped IDs directly");
+            $this->line("2. The user hasn't interacted with your page yet (required for some endpoints)");
+            $this->line("3. Missing API permissions (instagram_basic, pages_read_engagement, etc.)");
+            $this->line("4. The access token might not have the right scopes");
+            $this->newLine();
+            $this->info("Check storage/logs/laravel.log for detailed error information.");
+            $this->info("The profile might be available in the webhook payload itself - check the raw_payload field.");
         }
         
         return 0;

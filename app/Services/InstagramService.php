@@ -60,17 +60,23 @@ class InstagramService
 
     /**
      * Get user profile information (e.g. name)
+     * 
+     * Note: Instagram Graph API has limitations on fetching user profiles.
+     * For Instagram scoped IDs from messaging, we may need to use the conversations API
+     * or the user might need to have interacted with your page.
      */
     public function getUserProfile(string $userId): ?array
     {
         if (!$this->accessToken) {
+            Log::error('Instagram Access Token is missing for getUserProfile');
             return null;
         }
 
-        // Note: Getting user profile usually requires specific permissions or that the user has interacted.
-        // For Instagram scoped IDs, fields might be limited.
+        // Try multiple endpoints and approaches
+        
+        // Approach 1: Direct user ID lookup (may not work for Instagram scoped IDs)
         $url = "{$this->baseUrl}/{$userId}";
-
+        
         $response = Http::withToken($this->accessToken)
             ->get($url, [
                 'fields' => 'name,first_name,last_name,profile_pic,profile_picture_url,username',
@@ -89,10 +95,36 @@ class InstagramService
             return $data;
         }
 
+        // Approach 2: Try using the page's conversations endpoint
+        // This might work better for Instagram messaging users
+        if ($this->pageId) {
+            $conversationsUrl = "{$this->baseUrl}/{$this->pageId}/conversations";
+            $conversationsResponse = Http::withToken($this->accessToken)
+                ->get($conversationsUrl, [
+                    'user_id' => $userId,
+                    'fields' => 'participants',
+                ]);
+            
+            if ($conversationsResponse->successful()) {
+                $conversations = $conversationsResponse->json();
+                // If we find the conversation, we might be able to get user info from it
+                Log::info('Found conversation for user', [
+                    'user_id' => $userId,
+                    'conversations' => $conversations,
+                ]);
+            }
+        }
+
+        // Log detailed error information
+        $errorResponse = $response->json();
         Log::warning('Failed to fetch Instagram user profile', [
             'user_id' => $userId,
-            'response' => $response->json(),
+            'url' => $url,
             'status' => $response->status(),
+            'response' => $errorResponse,
+            'error_type' => $errorResponse['error']['type'] ?? null,
+            'error_message' => $errorResponse['error']['message'] ?? null,
+            'error_code' => $errorResponse['error']['code'] ?? null,
         ]);
 
         return null;
