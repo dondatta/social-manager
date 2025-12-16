@@ -90,8 +90,15 @@ class MessageResource extends Resource
                     ->label('Username')
                     ->searchable()
                     ->sortable()
-                    ->formatStateUsing(fn ($record) => $record->instagram_username ? '@' . $record->instagram_username : 'Unknown')
-                    ->description(fn ($record) => $record->instagram_user_id ? 'ID: ' . $record->instagram_user_id : null),
+                    ->formatStateUsing(function ($record) {
+                        if ($record->instagram_username) {
+                            return '@' . $record->instagram_username;
+                        }
+                        // Fallback: show last 8 digits of user ID
+                        return $record->instagram_user_id ? 'ID: ' . substr($record->instagram_user_id, -8) : 'Unknown';
+                    })
+                    ->description(fn ($record) => $record->instagram_user_id ? 'Full ID: ' . $record->instagram_user_id : null)
+                    ->tooltip(fn ($record) => $record->instagram_user_id ? 'Instagram User ID: ' . $record->instagram_user_id : null),
                 TextColumn::make('message_type')
                     ->label('Type')
                     ->badge()

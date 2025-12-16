@@ -178,13 +178,18 @@ class WebhookController extends Controller
         
         if (!$userId || !$commentId) return;
 
-        // Get username and profile picture
-        $profile = $this->instagramService->getUserProfile($userId);
-        $username = ($profile && isset($profile['username'])) ? $profile['username'] : null;
-        // Try both field names for profile picture
+        // Try to extract username from webhook payload first (comments sometimes include it)
+        $username = $data['from']['username'] ?? null;
         $profilePic = null;
-        if ($profile) {
-            $profilePic = $profile['profile_picture_url'] ?? $profile['profile_pic'] ?? null;
+        
+        // If not in payload, try API call
+        if (!$username) {
+            $profile = $this->instagramService->getUserProfile($userId);
+            $username = ($profile && isset($profile['username'])) ? $profile['username'] : null;
+            // Try both field names for profile picture
+            if ($profile) {
+                $profilePic = $profile['profile_picture_url'] ?? $profile['profile_pic'] ?? null;
+            }
         }
 
         // Save message
