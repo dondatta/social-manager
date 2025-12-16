@@ -11,6 +11,7 @@ use App\Models\AutomationCooldown;
 use App\Models\Message;
 use App\Jobs\SendWelcomeDmJob;
 use App\Jobs\SyncToHubspotJob;
+use App\Jobs\FetchUserProfileJob;
 use Filament\Notifications\Notification;
 use App\Models\User;
 
@@ -57,10 +58,15 @@ class WebhookController extends Controller
             $message = $event['message'];
             $messageText = $message['text'] ?? '';
             
-            // Get username and profile picture for display
+            // Try to get username and profile picture synchronously (for immediate display)
+            // If it fails, we'll fetch it asynchronously later
             $profile = $this->instagramService->getUserProfile($senderId);
             $username = ($profile && isset($profile['username'])) ? $profile['username'] : null;
-            $profilePic = ($profile && isset($profile['profile_pic'])) ? $profile['profile_pic'] : null;
+            // Try both field names for profile picture
+            $profilePic = null;
+            if ($profile) {
+                $profilePic = $profile['profile_picture_url'] ?? $profile['profile_pic'] ?? null;
+            }
             
             // 4. Story Mention
             // When a user mentions you in their story, you receive a message with an attachment of type 'story_mention'
@@ -68,7 +74,7 @@ class WebhookController extends Controller
                 foreach ($message['attachments'] as $attachment) {
                     if (($attachment['type'] ?? '') === 'story_mention') {
                         // Save message
-                        Message::create([
+                        $message = Message::create([
                             'instagram_user_id' => $senderId,
                             'instagram_username' => $username,
                             'profile_picture_url' => $profilePic,
@@ -76,6 +82,10 @@ class WebhookController extends Controller
                             'message_text' => $messageText ?: 'Story mention',
                             'raw_payload' => $event,
                         ]);
+                        // Fetch profile asynchronously if we don't have it
+                        if (!$username || !$profilePic) {
+                            FetchUserProfileJob::dispatch($message->id)->delay(now()->addSeconds(5));
+                        }
                         $this->processStoryMention($senderId, $messageText);
                         return;
                     }
@@ -86,7 +96,7 @@ class WebhookController extends Controller
             // Check if the message is a reply to a story
             if (isset($message['reply_to']['story'])) {
                 // Save message
-                Message::create([
+                $message = Message::create([
                     'instagram_user_id' => $senderId,
                     'instagram_username' => $username,
                     'profile_picture_url' => $profilePic,
@@ -94,6 +104,10 @@ class WebhookController extends Controller
                     'message_text' => $messageText ?: 'Story reply',
                     'raw_payload' => $event,
                 ]);
+                // Fetch profile asynchronously if we don't have it
+                if (!$username || !$profilePic) {
+                    FetchUserProfileJob::dispatch($message->id)->delay(now()->addSeconds(5));
+                }
                 $this->processStoryReply($senderId, $messageText);
                 return;
             }
@@ -101,7 +115,7 @@ class WebhookController extends Controller
             // Regular DM
             if ($messageText) {
                 // Save message
-                Message::create([
+                $message = Message::create([
                     'instagram_user_id' => $senderId,
                     'instagram_username' => $username,
                     'profile_picture_url' => $profilePic,
@@ -109,6 +123,11 @@ class WebhookController extends Controller
                     'message_text' => $messageText,
                     'raw_payload' => $event,
                 ]);
+                
+                // Fetch profile asynchronously if we don't have it
+                if (!$username || !$profilePic) {
+                    FetchUserProfileJob::dispatch($message->id)->delay(now()->addSeconds(5));
+                }
                 
                 // Sync to HubSpot (if configured)
                 if ($username) {
@@ -162,10 +181,14 @@ class WebhookController extends Controller
         // Get username and profile picture
         $profile = $this->instagramService->getUserProfile($userId);
         $username = ($profile && isset($profile['username'])) ? $profile['username'] : null;
-        $profilePic = ($profile && isset($profile['profile_pic'])) ? $profile['profile_pic'] : null;
+        // Try both field names for profile picture
+        $profilePic = null;
+        if ($profile) {
+            $profilePic = $profile['profile_picture_url'] ?? $profile['profile_pic'] ?? null;
+        }
 
         // Save message
-        Message::create([
+        $message = Message::create([
             'instagram_user_id' => $userId,
             'instagram_username' => $username,
             'profile_picture_url' => $profilePic,
@@ -175,6 +198,11 @@ class WebhookController extends Controller
             'comment_id' => $commentId,
             'raw_payload' => $data,
         ]);
+        
+        // Fetch profile asynchronously if we don't have it
+        if (!$username || !$profilePic) {
+            FetchUserProfileJob::dispatch($message->id)->delay(now()->addSeconds(5));
+        }
 
         $displayName = $username ? "@$username" : $userId;
         $this->notifyAdmins('New Comment', "User $displayName commented: \"$text\"");
@@ -205,10 +233,14 @@ class WebhookController extends Controller
             // Get username and profile picture
             $profile = $this->instagramService->getUserProfile($userId);
             $username = ($profile && isset($profile['username'])) ? $profile['username'] : null;
-            $profilePic = ($profile && isset($profile['profile_pic'])) ? $profile['profile_pic'] : null;
+            // Try both field names for profile picture
+            $profilePic = null;
+            if ($profile) {
+                $profilePic = $profile['profile_picture_url'] ?? $profile['profile_pic'] ?? null;
+            }
 
             // Save message
-            Message::create([
+            $message = Message::create([
                 'instagram_user_id' => $userId,
                 'instagram_username' => $username,
                 'profile_picture_url' => $profilePic,
@@ -217,6 +249,11 @@ class WebhookController extends Controller
                 'media_id' => $mediaId,
                 'raw_payload' => $data,
             ]);
+            
+            // Fetch profile asynchronously if we don't have it
+            if (!$username || !$profilePic) {
+                FetchUserProfileJob::dispatch($message->id)->delay(now()->addSeconds(5));
+            }
 
             $displayName = $username ? "@$username" : $userId;
             $this->notifyAdmins('New Mention', "User $displayName mentioned you in a post/comment (Media ID: $mediaId)");

@@ -73,16 +73,26 @@ class InstagramService
 
         $response = Http::withToken($this->accessToken)
             ->get($url, [
-                'fields' => 'name,first_name,last_name,profile_pic,username',
+                'fields' => 'name,first_name,last_name,profile_pic,profile_picture_url,username',
             ]);
 
         if ($response->successful()) {
-            return $response->json();
+            $data = $response->json();
+            
+            // Normalize profile picture field name
+            if (isset($data['profile_picture_url']) && !isset($data['profile_pic'])) {
+                $data['profile_pic'] = $data['profile_picture_url'];
+            } elseif (isset($data['profile_pic']) && !isset($data['profile_picture_url'])) {
+                $data['profile_picture_url'] = $data['profile_pic'];
+            }
+            
+            return $data;
         }
 
         Log::warning('Failed to fetch Instagram user profile', [
             'user_id' => $userId,
             'response' => $response->json(),
+            'status' => $response->status(),
         ]);
 
         return null;
