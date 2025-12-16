@@ -46,8 +46,7 @@ class MessageResource extends Resource
                 TextInput::make('profile_picture_url')
                     ->label('Profile Picture URL')
                     ->disabled()
-                    ->url(fn ($record) => $record->profile_picture_url)
-                    ->openUrlInNewTab(),
+                    ->helperText('Click the image in the table to view the full profile picture'),
                 Select::make('message_type')
                     ->label('Message Type')
                     ->options([
