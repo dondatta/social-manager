@@ -1,6 +1,44 @@
 # How to Get Instagram Access Token (IG_ACCESS_TOKEN)
 
-## Method 1: Using Artisan Command (Recommended - Avoids manage_pages Error)
+## Method 1: Get Token from Instagram Product Settings (Recommended by Developers)
+
+If your developer mentioned getting the token "from Instagram", they likely mean getting it from your Facebook App's Instagram product settings.
+
+### Step 1: Go to Your Facebook App
+1. Go to: https://developers.facebook.com/apps/
+2. Select your app
+3. In the left sidebar, click **"Instagram"** under Products
+
+### Step 2: Get Your Instagram Business Account ID
+1. In the Instagram product settings, you'll see your **Instagram Business Account ID**
+2. Copy this ID (you'll need it)
+
+### Step 3: Get Page Access Token via Graph API Explorer
+1. Go to: https://developers.facebook.com/tools/explorer/
+2. Select your app (top left dropdown)
+3. Click the "User or Page" dropdown
+4. **Select your Facebook Page** (the one connected to your Instagram account)
+5. Click "Generate Access Token"
+6. Select permissions:
+   - `pages_messaging`
+   - `instagram_basic`
+   - `pages_show_list`
+7. Copy the generated **Page Access Token**
+
+### Step 4: Get Your Page ID
+1. In Graph API Explorer, with your Page selected, make a GET request to: `/me`
+2. The `id` field is your Page ID
+3. Or go to your Facebook Page → About → find "Page ID"
+
+### Step 5: Add to .env
+```env
+IG_ACCESS_TOKEN="your_page_access_token_here"
+IG_PAGE_ID="your_page_id_here"
+```
+
+---
+
+## Method 2: Using Artisan Command (Alternative - Avoids manage_pages Error)
 
 This method uses the `/me/accounts` endpoint to get a Page Access Token without deprecated permissions.
 

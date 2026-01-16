@@ -13,8 +13,41 @@ class InstagramService
 
     public function __construct()
     {
-        $this->accessToken = config('services.instagram.access_token');
-        $this->pageId = config('services.instagram.page_id');
+        // Check database first, then fall back to config/env
+        $this->accessToken = $this->getAccessToken();
+        $this->pageId = $this->getPageId();
+    }
+
+    protected function getAccessToken(): ?string
+    {
+        // Check database first
+        try {
+            $setting = \App\Models\AutomationSetting::where('key', 'instagram_access_token')->first();
+            if ($setting && !empty($setting->value)) {
+                return $setting->value;
+            }
+        } catch (\Exception $e) {
+            // Database not available, fall through to config
+        }
+        
+        // Fall back to config/env
+        return config('services.instagram.access_token');
+    }
+
+    protected function getPageId(): ?string
+    {
+        // Check database first
+        try {
+            $setting = \App\Models\AutomationSetting::where('key', 'instagram_page_id')->first();
+            if ($setting && !empty($setting->value)) {
+                return $setting->value;
+            }
+        } catch (\Exception $e) {
+            // Database not available, fall through to config
+        }
+        
+        // Fall back to config/env
+        return config('services.instagram.page_id');
     }
 
     /**
@@ -25,11 +58,20 @@ class InstagramService
      * @param string $message The text to send
      * @param bool $isCommentReply Set true if $recipientId is a Comment ID
      */
-    public function sendDm(string $recipientId, string $message, bool $isCommentReply = false): bool
+    /**
+     * Send a text message to a user.
+     * Supports standard DMs and Private Replies to Comments.
+     * 
+     * @param string $recipientId The User ID or Comment ID
+     * @param string $message The text to send
+     * @param bool $isCommentReply Set true if $recipientId is a Comment ID
+     * @return array Returns ['success' => bool, 'error' => string|null]
+     */
+    public function sendDm(string $recipientId, string $message, bool $isCommentReply = false): array
     {
         if (!$this->accessToken) {
             Log::error('Instagram Access Token is missing.');
-            return false;
+            return ['success' => false, 'error' => 'Instagram Access Token is missing. Please check your .env file.'];
         }
 
         $url = "{$this->baseUrl}/me/messages";
@@ -45,17 +87,30 @@ class InstagramService
             ]);
 
         if ($response->successful()) {
-            return true;
+            return ['success' => true, 'error' => null];
         }
+
+        $errorData = $response->json();
+        $errorMessage = $errorData['error']['message'] ?? 'Unknown error';
+        $errorCode = $errorData['error']['code'] ?? null;
+        
+        // Provide user-friendly error messages
+        $userFriendlyError = match($errorCode) {
+            190 => 'Invalid or expired access token. Please update your IG_ACCESS_TOKEN in the .env file.',
+            100 => 'Invalid user ID or user has not engaged with you in the last 24 hours.',
+            10 => 'Permission denied. Check your Instagram API permissions.',
+            default => $errorMessage . (isset($errorCode) ? " (Error Code: {$errorCode})" : ''),
+        };
 
         Log::error('Failed to send Instagram DM', [
             'recipient_id' => $recipientId,
             'is_comment_reply' => $isCommentReply,
-            'response' => $response->json(),
+            'response' => $errorData,
             'status' => $response->status(),
+            'error_code' => $errorCode,
         ]);
 
-        return false;
+        return ['success' => false, 'error' => $userFriendlyError];
     }
 
     /**
@@ -75,7 +130,7 @@ class InstagramService
         // Approach 1: Try User Profile API with username field (v14.0+)
         // According to docs: GET /v14.0/{user-id}?fields=username,name
         $url = "{$this->baseUrl}/{$userId}";
-        
+
         // Try with username field first (as per v14.0+ documentation)
         $response = Http::withToken($this->accessToken)
             ->get($url, [
@@ -159,7 +214,7 @@ class InstagramService
         $errorResponse = $response->json();
         $errorCode = $errorResponse['error']['code'] ?? null;
         $errorMessage = $errorResponse['error']['message'] ?? null;
-        
+
         Log::warning('Failed to fetch Instagram user profile', [
             'user_id' => $userId,
             'url' => $url,

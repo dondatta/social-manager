@@ -27,7 +27,7 @@ class WebhookController extends Controller
     public function handle(Request $request)
     {
         $payload = $request->all();
-        // Log::info('Instagram Webhook Received', $payload); // Debug log
+        Log::info('Instagram Webhook Received', ['method' => $request->method(), 'has_payload' => !empty($payload)]);
 
         $entries = $payload['entry'] ?? [];
 
@@ -316,7 +316,8 @@ class WebhookController extends Controller
         $isCommentReply = ($type === 'comment_dm' && $commentId);
         $recipient = $isCommentReply ? $commentId : $userId;
 
-        $success = $this->instagramService->sendDm($recipient, $message, $isCommentReply);
+        $result = $this->instagramService->sendDm($recipient, $message, $isCommentReply);
+        $success = $result['success'];
 
         // Log
         AutomationLog::create([

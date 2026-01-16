@@ -48,7 +48,8 @@ class SendSingleDmJob implements ShouldQueue
             
             $message = str_replace('{first_name}', $firstName, $this->messageTemplate);
 
-            $success = $instagramService->sendDm($this->userId, $message);
+            $result = $instagramService->sendDm($this->userId, $message);
+            $success = $result['success'];
 
             AutomationLog::create([
                 'instagram_user_id' => $this->userId,
