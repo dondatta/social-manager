@@ -128,19 +128,21 @@ class InstagramService
         }
 
         // Approach 1: Try graph.instagram.com endpoint (ManyChat-style approach)
-        // GET https://graph.instagram.com/{IGSCOPED_ID}?fields=id,username,name,profile_pic&access_token={ACCESS_TOKEN}
+        // GET https://graph.instagram.com/{sender-id}?fields=username,name,profile_pic&access_token={token}
         try {
             $instagramUrl = "https://graph.instagram.com/{$userId}";
-            $response = Http::withToken($this->accessToken)
-                ->get($instagramUrl, [
-                    'fields' => 'id,username,name,profile_pic',
-                ]);
+            
+            // Try with access_token as query parameter (as suggested)
+            $response = Http::get($instagramUrl, [
+                'fields' => 'username,name,profile_pic',
+                'access_token' => $this->accessToken,
+            ]);
 
             if ($response->successful()) {
                 $data = $response->json();
                 
                 // Log full response for debugging
-                Log::info('graph.instagram.com response', [
+                Log::info('graph.instagram.com response (with access_token param)', [
                     'user_id' => $userId,
                     'response' => $data,
                 ]);
@@ -160,13 +162,41 @@ class InstagramService
                 }
             } else {
                 $errorData = $response->json();
-                Log::warning('graph.instagram.com endpoint failed', [
+                Log::warning('graph.instagram.com endpoint failed (with access_token param)', [
                     'user_id' => $userId,
                     'status' => $response->status(),
                     'error' => $errorData,
                     'error_message' => $errorData['error']['message'] ?? null,
                     'error_code' => $errorData['error']['code'] ?? null,
                 ]);
+                
+                // Try with token in header as fallback
+                $response2 = Http::withToken($this->accessToken)
+                    ->get($instagramUrl, [
+                        'fields' => 'username,name,profile_pic',
+                    ]);
+                
+                if ($response2->successful()) {
+                    $data = $response2->json();
+                    
+                    Log::info('graph.instagram.com response (with token header)', [
+                        'user_id' => $userId,
+                        'response' => $data,
+                    ]);
+                    
+                    if (isset($data['profile_pic'])) {
+                        $data['profile_picture_url'] = $data['profile_pic'];
+                    }
+                    
+                    if (!empty($data['username']) || !empty($data['profile_pic'])) {
+                        Log::info('Successfully fetched user profile via graph.instagram.com (header)', [
+                            'user_id' => $userId,
+                            'has_username' => isset($data['username']),
+                            'has_profile_pic' => isset($data['profile_pic']),
+                        ]);
+                        return $data;
+                    }
+                }
             }
         } catch (\Exception $e) {
             Log::error('graph.instagram.com call exception', [
