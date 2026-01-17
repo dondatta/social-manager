@@ -127,102 +127,178 @@ class InstagramService
             return null;
         }
 
-        // Approach 1: Try User Profile API with username field (v14.0+)
-        // According to docs: GET /v14.0/{user-id}?fields=username,name
-        $url = "{$this->baseUrl}/{$userId}";
+        // Approach 1: Try graph.instagram.com endpoint (ManyChat-style approach)
+        // GET https://graph.instagram.com/{IGSCOPED_ID}?fields=id,username,name,profile_pic&access_token={ACCESS_TOKEN}
+        try {
+            $instagramUrl = "https://graph.instagram.com/{$userId}";
+            $response = Http::withToken($this->accessToken)
+                ->get($instagramUrl, [
+                    'fields' => 'id,username,name,profile_pic',
+                ]);
 
-        // Try with username field first (as per v14.0+ documentation)
-        $response = Http::withToken($this->accessToken)
-            ->get($url, [
-                'fields' => 'username,name,first_name,last_name,profile_pic,profile_picture_url',
-            ]);
-
-        if ($response->successful()) {
-            $data = $response->json();
-            
-            // Normalize profile picture field name
-            if (isset($data['profile_picture_url']) && !isset($data['profile_pic'])) {
-                $data['profile_pic'] = $data['profile_picture_url'];
-            } elseif (isset($data['profile_pic']) && !isset($data['profile_picture_url'])) {
-                $data['profile_picture_url'] = $data['profile_pic'];
+            if ($response->successful()) {
+                $data = $response->json();
+                
+                // Log full response for debugging
+                Log::info('graph.instagram.com response', [
+                    'user_id' => $userId,
+                    'response' => $data,
+                ]);
+                
+                // Normalize profile picture field name
+                if (isset($data['profile_pic'])) {
+                    $data['profile_picture_url'] = $data['profile_pic'];
+                }
+                
+                if (!empty($data['username']) || !empty($data['profile_pic'])) {
+                    Log::info('Successfully fetched user profile via graph.instagram.com', [
+                        'user_id' => $userId,
+                        'has_username' => isset($data['username']),
+                        'has_profile_pic' => isset($data['profile_pic']),
+                    ]);
+                    return $data;
+                }
+            } else {
+                $errorData = $response->json();
+                Log::warning('graph.instagram.com endpoint failed', [
+                    'user_id' => $userId,
+                    'status' => $response->status(),
+                    'error' => $errorData,
+                    'error_message' => $errorData['error']['message'] ?? null,
+                    'error_code' => $errorData['error']['code'] ?? null,
+                ]);
             }
-            
-            Log::info('Successfully fetched user profile', [
+        } catch (\Exception $e) {
+            Log::error('graph.instagram.com call exception', [
                 'user_id' => $userId,
-                'has_username' => isset($data['username']),
-                'has_profile_pic' => isset($data['profile_pic']) || isset($data['profile_picture_url']),
-            ]);
-            
-            return $data;
-        }
-
-        // Approach 2: Try with metadata=1 to see what fields are available
-        $metadataResponse = Http::withToken($this->accessToken)
-            ->get($url, [
-                'metadata' => 1,
-            ]);
-        
-        if ($metadataResponse->successful()) {
-            $metadata = $metadataResponse->json();
-            Log::info('Retrieved metadata for user', [
-                'user_id' => $userId,
-                'available_fields' => isset($metadata['metadata']['fields']) 
-                    ? array_column($metadata['metadata']['fields'], 'name') 
-                    : null,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
         }
 
-        // Approach 3: Try conversations endpoint if we have page ID
+        // Approach 2: Try Conversations API to get participant info (ManyChat uses this)
+        // This is often more reliable for messaging-scoped IDs
         if ($this->pageId) {
             try {
-                // Get conversations and check if user info is in participants
+                // Get all conversations and search for this user
                 $conversationsUrl = "{$this->baseUrl}/{$this->pageId}/conversations";
                 $conversationsResponse = Http::withToken($this->accessToken)
                     ->get($conversationsUrl, [
-                        'user_id' => $userId,
-                        'fields' => 'participants{id,name,username}',
+                        'fields' => 'participants{id,name,username,profile_pic}',
+                        'limit' => 100, // Get more conversations
                     ]);
                 
                 if ($conversationsResponse->successful()) {
                     $conversations = $conversationsResponse->json();
-                    Log::info('Found conversation for user', [
-                        'user_id' => $userId,
-                        'conversations' => $conversations,
-                    ]);
-                    // Extract user info from participants if available
-                    if (isset($conversations['data'][0]['participants']['data'])) {
-                        foreach ($conversations['data'][0]['participants']['data'] as $participant) {
-                            if ($participant['id'] === $userId) {
-                                return [
-                                    'id' => $participant['id'],
-                                    'username' => $participant['username'] ?? null,
-                                    'name' => $participant['name'] ?? null,
-                                ];
+                    
+                    // Search through conversations for this user
+                    if (isset($conversations['data'])) {
+                        foreach ($conversations['data'] as $conversation) {
+                            if (isset($conversation['participants']['data'])) {
+                                foreach ($conversation['participants']['data'] as $participant) {
+                                    if ($participant['id'] === $userId) {
+                                        $profile = [
+                                            'id' => $participant['id'],
+                                            'username' => $participant['username'] ?? null,
+                                            'name' => $participant['name'] ?? null,
+                                        ];
+                                        
+                                        // Handle profile picture
+                                        if (isset($participant['profile_pic'])) {
+                                            $profile['profile_pic'] = $participant['profile_pic'];
+                                            $profile['profile_picture_url'] = $participant['profile_pic'];
+                                        }
+                                        
+                                        Log::info('Found user profile via conversations API', [
+                                            'user_id' => $userId,
+                                            'has_username' => !empty($profile['username']),
+                                            'has_profile_pic' => !empty($profile['profile_pic']),
+                                        ]);
+                                        
+                                        return $profile;
+                                    }
+                                }
                             }
                         }
                     }
+                } else {
+                    Log::debug('Conversations API call failed', [
+                        'user_id' => $userId,
+                        'status' => $conversationsResponse->status(),
+                        'error' => $conversationsResponse->json(),
+                    ]);
                 }
             } catch (\Exception $e) {
-                Log::debug('Conversations API call failed', [
+                Log::debug('Conversations API call exception', [
                     'user_id' => $userId,
                     'error' => $e->getMessage(),
                 ]);
             }
         }
 
+        // Approach 3: Try graph.facebook.com endpoint (fallback)
+        // Also try with explicit access_token in query string (some endpoints prefer this)
+        try {
+            $url = "{$this->baseUrl}/{$userId}";
+            
+            // Try with token in header first
+            $response = Http::withToken($this->accessToken)
+                ->get($url, [
+                    'fields' => 'id,username,name,first_name,last_name,profile_pic,profile_picture_url',
+                ]);
+
+            if ($response->successful()) {
+                $data = $response->json();
+                
+                Log::info('graph.facebook.com response', [
+                    'user_id' => $userId,
+                    'response' => $data,
+                ]);
+                
+                // Normalize profile picture field name
+                if (isset($data['profile_picture_url']) && !isset($data['profile_pic'])) {
+                    $data['profile_pic'] = $data['profile_picture_url'];
+                } elseif (isset($data['profile_pic']) && !isset($data['profile_picture_url'])) {
+                    $data['profile_picture_url'] = $data['profile_pic'];
+                }
+                
+                if (!empty($data['username']) || !empty($data['profile_pic'])) {
+                    Log::info('Successfully fetched user profile via graph.facebook.com', [
+                        'user_id' => $userId,
+                        'has_username' => isset($data['username']),
+                        'has_profile_pic' => isset($data['profile_pic']) || isset($data['profile_picture_url']),
+                    ]);
+                    return $data;
+                }
+            } else {
+                $errorData = $response->json();
+                Log::warning('graph.facebook.com endpoint failed', [
+                    'user_id' => $userId,
+                    'status' => $response->status(),
+                    'error' => $errorData,
+                    'error_message' => $errorData['error']['message'] ?? null,
+                    'error_code' => $errorData['error']['code'] ?? null,
+                ]);
+            }
+        } catch (\Exception $e) {
+            Log::error('graph.facebook.com call exception', [
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
         // Log detailed error information
-        $errorResponse = $response->json();
+        $errorResponse = $response->json() ?? [];
         $errorCode = $errorResponse['error']['code'] ?? null;
         $errorMessage = $errorResponse['error']['message'] ?? null;
 
         Log::warning('Failed to fetch Instagram user profile', [
             'user_id' => $userId,
-            'url' => $url,
             'status' => $response->status(),
             'error_type' => $errorResponse['error']['type'] ?? null,
             'error_message' => $errorMessage,
             'error_code' => $errorCode,
-            'note' => 'Instagram-scoped IDs from messaging may not support profile data retrieval',
+            'note' => 'Tried graph.instagram.com, conversations API, and graph.facebook.com - all failed',
         ]);
 
         return null;
